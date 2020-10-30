@@ -1,28 +1,38 @@
-import dash
-import dash_core_components as dcc
-import dash_html_components as html
-import plotly.express as px
-import pandas as pd
-import numpy as np
 import datetime as dt
 from dateutil.parser import isoparse
 import pickle
 import os.path
+from decouple import config
+
+import pandas as pd
+import numpy as np
 import seaborn as sns
 import matplotlib.pyplot as plt
+
+import plotly.express as px
+import dash
+import dash_core_components as dcc
+import dash_html_components as html
+
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
 
+# TODO: make your own css stylesheet
 external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
 
 # scope
 scopes = ['https://www.googleapis.com/auth/calendar']
-visium_calendar_id = "bjaqb1128v8fgrknb29d8r07is@group.calendar.google.com"
+
 
 def get_service(calendar_name='personal'):
-    """Shows basic usage of the Google Calendar API.
-    Prints the start and name of the next 10 events on the user's calendar.
+    """Get Google Calendar API service from credentials
+
+    Args:
+        calendar_name (str, optional): Calendar name for file saving and credentials fetching. Defaults to 'personal'.
+
+    Returns:
+        service: Resource for interacting with Google Calendar API
     """
     creds = None
     
@@ -47,7 +57,16 @@ def get_service(calendar_name='personal'):
     return build('calendar', 'v3', credentials=creds)
 
 def get_events(service, calendar_id='primary'):
-    
+    """Get events from calendar using Google Calendar API service.
+
+    Args:
+        service (service): Resource for interacting with Google Calendar API
+        calendar_id (str, optional): Google Calendar ID, your possibilities can be found by running `service.calendarList().list().execute()`. Defaults to 'primary'.
+
+    Returns:
+        dict: Response body for events call. Look for `items` key to fetch events list.
+    """
+
     # Setting now time
     now = dt.datetime.utcnow().isoformat() + 'Z' # 'Z' indicates UTC time
     # Getting Monday 5 AM
@@ -61,6 +80,15 @@ def get_events(service, calendar_id='primary'):
     ).execute()
 
 def pre_process(raw):
+    """Pre-processing step for raw data. TODO: separate into files?
+
+    Args:
+        raw (pd.DataFrame): raw data
+
+    Returns:
+        pd.DataFrame: processed data
+    """
+
     # Copy DataFrame
     processed = raw.copy()
     
@@ -98,6 +126,7 @@ def pre_process(raw):
         processed['colorId'] = processed['colorId'].astype(int)
 
         # create activity col
+        # TODO: incorporate Google Colors to plotly figure
         activity = ['default'] * 12
         activity[4] = 'meditation'
         activity[7] = 'gym'
@@ -105,12 +134,16 @@ def pre_process(raw):
 
         processed['activity'] = [ activity[colorId] for colorId in processed['colorId'] ]
 
+    # TODO: if you can't fetch attendee information from Visium calendar, nvm this step
     if 'attendees' in raw.columns:
         # count attendees
         processed['attendees'] = raw['attendees'].fillna(1)
         processed['attendees'] = [1 if attendees == 1 else len(attendees) for attendees in processed['attendees']]
 
     return processed
+
+# Visium Copy Calendar ID
+visium_calendar_id = config('VISIUM_CAL_ID')
 
 visium_events = pd.DataFrame(data=get_events(get_service(), calendar_id=visium_calendar_id).get('items', []))
 

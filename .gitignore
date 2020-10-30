@@ -1,3 +1,4 @@
 .ipynb_checkpoints/
 *-credentials.json
 *-token.pickle
+.env
