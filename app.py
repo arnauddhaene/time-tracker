@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 
 import plotly.express as px
 import dash
+from dash.dependencies import (Input, Output, State)
 import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_html_components as html
@@ -30,7 +31,7 @@ def get_service(calendar_name='personal'):
         service: Resource for interacting with Google Calendar API
     """
     creds = None
-    
+
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.
@@ -43,7 +44,7 @@ def get_service(calendar_name='personal'):
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                clients_secrets_file=f'{calendar_name}-credentials.json', 
+                clients_secrets_file=f'{calendar_name}-credentials.json',
                 scopes=[config('SCOPE')])
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
@@ -51,6 +52,7 @@ def get_service(calendar_name='personal'):
             pickle.dump(creds, token)
 
     return build('calendar', 'v3', credentials=creds)
+
 
 def get_events(service, calendar_id='primary'):
     """Get events from calendar using Google Calendar API service.
@@ -64,15 +66,17 @@ def get_events(service, calendar_id='primary'):
     """
 
     # Setting now time
-    now = dt.datetime.utcnow().isoformat() + 'Z' # 'Z' indicates UTC time
-    
+    now = dt.datetime.utcnow().isoformat() + 'Z'  # 'Z' indicates UTC time
+
     # Getting Monday September 7 at 5 AM
-    internship_start = dt.datetime.combine(dt.date(2020, 9, 7), dt.time(5,0)).isoformat() + 'Z'
-    
+    internship_start = dt.datetime.combine(
+        dt.date(2020, 9, 7), dt.time(5, 0)).isoformat() + 'Z'
+
     return service.events().list(
-        calendarId=calendar_id, orderBy='startTime',singleEvents=True, 
+        calendarId=calendar_id, orderBy='startTime', singleEvents=True,
         timeMin=internship_start, timeMax=now
     ).execute()
+
 
 def pre_process(raw):
     """Pre-processing step for raw data. TODO: separate into files?
@@ -86,15 +90,16 @@ def pre_process(raw):
 
     # Copy DataFrame
     processed = raw.copy()
-    
+
     # Drop unwanted columns
     for col in processed.columns:
         if col not in ['start', 'end', 'summary', 'colorId', 'location', 'attendees']:
             del processed[col]
 
-    # Drop automated calendar events for Home Office by Lucca       
-    processed.drop(processed[processed.summary == "Home office"].index, inplace=True)
-            
+    # Drop automated calendar events for Home Office by Lucca
+    processed.drop(processed[processed.summary ==
+                             "Home office"].index, inplace=True)
+
     # TODO: verify that this modif is okay and doesn't miss out on anything
     idx = pd.isna([date.get('dateTime') for date in processed['end']])
     processed.drop(
@@ -103,12 +108,13 @@ def pre_process(raw):
     )
 
     # Dates
-    processed['end'] = [isoparse(date.get('dateTime')) for date in processed['end']] 
-    processed['start'] = [isoparse(date.get('dateTime')) for date in processed['start']]
+    processed['end'] = [isoparse(date.get('dateTime'))
+                        for date in processed['end']]
+    processed['start'] = [isoparse(date.get('dateTime'))
+                          for date in processed['start']]
 
     processed['duration'] = processed['end'] - processed['start']
     processed['duration'] = [td.seconds / 3600 for td in processed['duration']]
-
 
     processed['datetime'] = pd.to_datetime(processed['start'], utc=True)
     processed['date'] = processed['datetime'].dt.date
@@ -128,45 +134,137 @@ def pre_process(raw):
         activity[7] = 'Exercise'
         activity[11] = 'Associative'
 
-        processed['activity'] = [ activity[colorId] for colorId in processed['colorId'] ]
+        processed['activity'] = [activity[colorId]
+                                 for colorId in processed['colorId']]
 
     # TODO: if you can't fetch attendee information from Visium calendar, nvm this step
     if 'attendees' in raw.columns:
         # count attendees
         processed['attendees'] = raw['attendees'].fillna(1)
-        processed['attendees'] = [1 if attendees == 1 else len(attendees) for attendees in processed['attendees']]
+        processed['attendees'] = [1 if attendees == 1 else len(
+            attendees) for attendees in processed['attendees']]
 
     return processed
 
+
 # Fetch Visium Events
-visium_events = pd.DataFrame(data=get_events(get_service(), calendar_id=config('VISIUM_CAL_ID')).get('items', []))
+visium_events = pd.DataFrame(data=get_events(
+    get_service(), calendar_id=config('VISIUM_CAL_ID')).get('items', []))
 
 v_events = pre_process(visium_events)
 v_events['activity'] = ['Visium'] * v_events.shape[0]
 
 # Fetch Personal Events - from primary Google Calendar
-personal_events = pd.DataFrame(data=get_events(get_service(), calendar_id='primary').get('items', []))
+personal_events = pd.DataFrame(data=get_events(
+    get_service(), calendar_id='primary').get('items', []))
 
 p_events = pre_process(personal_events)
 
 events = pd.concat([v_events, p_events])
 
-fig = px.bar(events, x='date', y='duration', color='activity')
+# Stacked Bar Chart of duration summed by day
+bar_stacked_fig = px.bar(events, x='date', y='duration', color='activity')
+bar_stacked_fig.update_layout(title='Time spent')
+
+# Pie chart of weekly activity duration
+# events_ranged = events[events['date'] > (
+#     dt.date.today() - dt.timedelta(days=7))]
+
+# pie_fig = px.pie(events_ranged, values='duration',
+#                  names='activity', title='Activities distribution')
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.COSMO])
 
-app.layout = html.Div(className="container mt-3", children=[
-    html.H1(children="Arnaud's Time Tracker"),
+app.layout = html.Div(className="container mt-4 mb-5", children=[
+    html.H1(
+        id='title',
+        children="Arnaud's Time Tracker"
+    ),
 
-    html.Div(children='''
-        Tracking the time I work. These include only what is noted on my calendar, which I have started to fill in consistently since October.
-    '''),
+    html.Div(
+        id='headline',
+        children='''
+            Headline/subtitle, TBD what I want exactly.
+        '''
+    ),
+
+    dcc.Dropdown(
+        id='bar-stacked-date-range',
+        className='col-3',
+        clearable=False,
+        options=[
+            dict(label='Last week', value=7),
+            dict(label='Last month', value=30),
+            dict(label='Last quarter', value=90),
+            dict(label='Last semester', value=180),
+            dict(label='Last year', value=360)
+        ],
+        value=30
+    ),
 
     dcc.Graph(
-        id='example-graph',
-        figure=fig
-    )
+        id='bar-stacked',
+        figure=bar_stacked_fig
+    ),
+
+    dcc.Graph(
+        id='pie'
+    ),
+
+    dcc.RangeSlider(
+        id='pie-range-slider',
+        className="col-6 mx-auto",
+        min=0,
+        max=4,
+        step=None,
+        marks={
+            0: '6 m',
+            1: '3 m',
+            2: '1 m',
+            3: '1 w',
+            4: 'Today'
+        },
+        value=[3, 4],
+
+    ),
 ])
+
+# CALLBACKS
+
+
+@app.callback(
+    Output('bar-stacked', 'figure'),
+    [Input('bar-stacked-date-range', 'value')],
+)
+def update_date_range(date_range):
+
+    today = dt.date.today()
+    start = today - dt.timedelta(days=date_range)
+
+    bar_stacked_fig.update_layout(xaxis=dict(range=(start, today)))
+
+    return bar_stacked_fig
+
+
+@app.callback(
+    Output('pie', 'figure'),
+    [Input('pie-range-slider', 'value')],
+)
+def update_date_range(date_range):
+
+    # Map days in past with range slider
+    map = [180, 90, 30, 7, 0]
+
+    today = dt.date.today()
+    start = today - dt.timedelta(days=map[date_range[0]])
+    end = today - dt.timedelta(days=map[date_range[1]])
+
+    ranged = events[(events['date'] > start) & (events['date'] < end)]
+    
+    fig = px.pie(ranged, values='duration', names='activity', title='Activities distribution')
+
+    return fig
+
 
 if __name__ == '__main__':
     app.run_server(debug=True)
