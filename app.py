@@ -187,6 +187,7 @@ meditation_percentage = events[
 ].duration.sum() / float(config('MEDITATION_GOAL')) * 100
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.COSMO])
+server = app.server
 
 # ====================================================================
 # APP LAYOUT
@@ -378,7 +379,7 @@ def update_range_slider(date_range):
     ranged = events[(events['date'] > start) & (events['date'] < end)]
 
     fig = px.pie(
-        data=ranged, values='duration', names='activity',
+        ranged, values='duration', names='activity',
         title='Activities distribution'
     )
 
