@@ -11,18 +11,13 @@ import matplotlib.pyplot as plt
 
 import plotly.express as px
 import dash
+import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_html_components as html
 
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import InstalledAppFlow
 from google.auth.transport.requests import Request
-
-# TODO: make your own css stylesheet
-external_stylesheets = ['https://codepen.io/chriddyp/pen/bWLwgP.css']
-
-# scope
-scopes = ['https://www.googleapis.com/auth/calendar']
 
 
 def get_service(calendar_name='personal'):
@@ -48,7 +43,8 @@ def get_service(calendar_name='personal'):
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                f'{calendar_name}-credentials.json', scopes)
+                clients_secrets_file=f'{calendar_name}-credentials.json', 
+                scopes=[config('SCOPE')])
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
         with open(f'{calendar_name}-token.pickle', 'wb') as token:
@@ -69,14 +65,13 @@ def get_events(service, calendar_id='primary'):
 
     # Setting now time
     now = dt.datetime.utcnow().isoformat() + 'Z' # 'Z' indicates UTC time
-    # Getting Monday 5 AM
-    today = dt.date.today()
-    monday = today - dt.timedelta(days=60)
-    week_start = dt.datetime.combine(monday, dt.time(5,0)).isoformat() + 'Z'
+    
+    # Getting Monday September 7 at 5 AM
+    internship_start = dt.datetime.combine(dt.date(2020, 9, 7), dt.time(5,0)).isoformat() + 'Z'
     
     return service.events().list(
         calendarId=calendar_id, orderBy='startTime',singleEvents=True, 
-        timeMin=week_start, timeMax=now
+        timeMin=internship_start, timeMax=now
     ).execute()
 
 def pre_process(raw):
@@ -127,11 +122,11 @@ def pre_process(raw):
 
         # create activity col
         # TODO: incorporate Google Colors to plotly figure
-        activity = ['default'] * 12
-        activity[2] = 'projects'
-        activity[4] = 'meditation'
-        activity[7] = 'gym'
-        activity[11] = 'DAG'
+        activity = ['Social'] * 12
+        activity[2] = 'Personal projects'
+        activity[4] = 'Meditation'
+        activity[7] = 'Exercise'
+        activity[11] = 'Associative'
 
         processed['activity'] = [ activity[colorId] for colorId in processed['colorId'] ]
 
@@ -143,14 +138,13 @@ def pre_process(raw):
 
     return processed
 
-# Visium Copy Calendar ID
-visium_calendar_id = config('VISIUM_CAL_ID')
-
-visium_events = pd.DataFrame(data=get_events(get_service(), calendar_id=visium_calendar_id).get('items', []))
+# Fetch Visium Events
+visium_events = pd.DataFrame(data=get_events(get_service(), calendar_id=config('VISIUM_CAL_ID')).get('items', []))
 
 v_events = pre_process(visium_events)
-v_events['activity'] = ['Work'] * v_events.shape[0]
+v_events['activity'] = ['Visium'] * v_events.shape[0]
 
+# Fetch Personal Events - from primary Google Calendar
 personal_events = pd.DataFrame(data=get_events(get_service(), calendar_id='primary').get('items', []))
 
 p_events = pre_process(personal_events)
@@ -159,10 +153,10 @@ events = pd.concat([v_events, p_events])
 
 fig = px.bar(events, x='date', y='duration', color='activity')
 
-app = dash.Dash(__name__, external_stylesheets=external_stylesheets)
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.COSMO])
 
-app.layout = html.Div(children=[
-    html.H1(children='Time Tracker'),
+app.layout = html.Div(className="container mt-3", children=[
+    html.H1(children="Arnaud's Time Tracker"),
 
     html.Div(children='''
         Tracking the time I work. These include only what is noted on my calendar, which I have started to fill in consistently since October.
