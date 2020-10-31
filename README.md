@@ -10,10 +10,6 @@ Create an interactive dashboard to analyze time spent. Is still personalized to 
 
 `conda create --name time-tracker python=3.6 --file requirements.txt`
 
-If you happen to add any packages, please update the requirements before committing.
-
-`conda list -e > requirements.txt`
-
 ### Fetch credentials from Google Developers Console
 
 Save as `personal-credentials.json` file in root directory.
