@@ -1,3 +1,6 @@
+[![GitHub flake8 Linter](https://github.com/arnauddhaene/time-tracker/workflows/flake8%20lint/badge.svg)](https://github.com/marketplace/actions/python-flake8-lint)
+
+
 ## Purpose
 
 Create an interactive dashboard to analyze time spent. Is still personalized to fetch from two specific calendars for now. Might be generalized later on.
