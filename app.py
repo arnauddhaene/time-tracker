@@ -1,6 +1,7 @@
 import datetime as dt
 import os.path
 import pickle
+import json
 
 import dash
 import dash_bootstrap_components as dbc
@@ -33,6 +34,21 @@ def get_service(calendar_name='personal'):
     """
     creds = None
 
+    client_secret_dict = dict(
+        installed=dict(
+            client_id=config('client_id'),
+            project_id=config('project_id'),
+            auth_uri=config('auth_uri'),
+            token_uri=config('token_uri'),
+            auth_provider_x509_cert_url=config('auth_provider_x509_cert_url'),
+            client_secret=config('client_secret'),
+            redirect_uris=config('redirect_uris').split(' ')
+        )
+    )
+
+    with open(f'{calendar_name}-credentials.json', 'w') as fp:
+        json.dump(client_secret_dict, fp)
+
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
     # time.s
@@ -45,7 +61,7 @@ def get_service(calendar_name='personal'):
             creds.refresh(Request())
         else:
             flow = InstalledAppFlow.from_client_secrets_file(
-                clients_secrets_file=f'{calendar_name}-credentials.json',
+                client_secrets_file=f'{calendar_name}-credentials.json',
                 scopes=[config('SCOPE')])
             creds = flow.run_local_server(port=0)
         # Save the credentials for the next run
