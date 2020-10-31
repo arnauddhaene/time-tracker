@@ -128,6 +128,7 @@ def pre_process(raw):
         # create activity col
         # TODO: incorporate Google Colors to plotly figure
         activity = ['default'] * 12
+        activity[2] = 'projects'
         activity[4] = 'meditation'
         activity[7] = 'gym'
         activity[11] = 'DAG'
