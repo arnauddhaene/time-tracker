@@ -1,31 +1,32 @@
 import datetime as dt
-from dateutil.parser import isoparse
-import pickle
 import os.path
-from decouple import config
+import pickle
 
-import pandas as pd
-import numpy as np
-import seaborn as sns
-import matplotlib.pyplot as plt
-
-import plotly.express as px
 import dash
-from dash.dependencies import (Input, Output, State)
 import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_html_components as html
+from dash.dependencies import Input, Output
 
-from googleapiclient.discovery import build
-from google_auth_oauthlib.flow import InstalledAppFlow
+import numpy as np
+import pandas as pd
+import plotly.express as px
+
+from dateutil.parser import isoparse
+from decouple import config
+from flask import send_from_directory
+
 from google.auth.transport.requests import Request
+from google_auth_oauthlib.flow import InstalledAppFlow
+from googleapiclient.discovery import build
 
 
 def get_service(calendar_name='personal'):
     """Get Google Calendar API service from credentials
 
     Args:
-        calendar_name (str, optional): Calendar name for file saving and credentials fetching. Defaults to 'personal'.
+        calendar_name (str, optional): Calendar name for file saving and
+        credentials fetching. Defaults to 'personal'.
 
     Returns:
         service: Resource for interacting with Google Calendar API
@@ -34,7 +35,7 @@ def get_service(calendar_name='personal'):
 
     # The file token.pickle stores the user's access and refresh tokens, and is
     # created automatically when the authorization flow completes for the first
-    # time.
+    # time.s
     if os.path.exists(f'{calendar_name}-token.pickle'):
         with open(f'{calendar_name}-token.pickle', 'rb') as token:
             creds = pickle.load(token)
@@ -59,22 +60,27 @@ def get_events(service, calendar_id='primary'):
 
     Args:
         service (service): Resource for interacting with Google Calendar API
-        calendar_id (str, optional): Google Calendar ID, your possibilities can be found by running `service.calendarList().list().execute()`. Defaults to 'primary'.
+        calendar_id (str, optional): Google Calendar ID, your possibilities
+        can be found by running `service.calendarList().list().execute()`.
+        Defaults to 'primary'.
 
     Returns:
-        dict: Response body for events call. Look for `items` key to fetch events list.
+        dict: Response body for events call. Look for `items` key to fetch
+        events list.
     """
 
     # Setting now time
-    now = dt.datetime.utcnow().isoformat() + 'Z'  # 'Z' indicates UTC time
+    now = dt.datetime.utcnow()
 
     # Getting Monday September 7 at 5 AM
     internship_start = dt.datetime.combine(
         dt.date(2020, 9, 7), dt.time(5, 0)).isoformat() + 'Z'
 
+    # Looks 1 week in the future
     return service.events().list(
         calendarId=calendar_id, orderBy='startTime', singleEvents=True,
-        timeMin=internship_start, timeMax=now
+        timeMin=internship_start,
+        timeMax=(now + dt.timedelta(days=7)).isoformat() + 'Z'
     ).execute()
 
 
@@ -93,7 +99,8 @@ def pre_process(raw):
 
     # Drop unwanted columns
     for col in processed.columns:
-        if col not in ['start', 'end', 'summary', 'colorId', 'location', 'attendees']:
+        if col not in ['start', 'end', 'summary',
+                       'colorId', 'location', 'attendees']:
             del processed[col]
 
     # Drop automated calendar events for Home Office by Lucca
@@ -137,7 +144,7 @@ def pre_process(raw):
         processed['activity'] = [activity[colorId]
                                  for colorId in processed['colorId']]
 
-    # TODO: if you can't fetch attendee information from Visium calendar, nvm this step
+    # TODO: Visium has no attendee information, irrelevant?
     if 'attendees' in raw.columns:
         # count attendees
         processed['attendees'] = raw['attendees'].fillna(1)
@@ -166,16 +173,31 @@ events = pd.concat([v_events, p_events])
 bar_stacked_fig = px.bar(events, x='date', y='duration', color='activity')
 bar_stacked_fig.update_layout(title='Time spent')
 
-# Pie chart of weekly activity duration
-# events_ranged = events[events['date'] > (
-#     dt.date.today() - dt.timedelta(days=7))]
+# TODO: make this more modular
+exercise_percentage = events[
+    (events['activity'] == 'Exercise') &
+    (events['date'] > dt.date.today() - dt.timedelta(days=7)) &
+    (events['date'] < dt.date.today())
+].duration.sum() / float(config('EXERCISE_GOAL')) * 100
 
-# pie_fig = px.pie(events_ranged, values='duration',
-#                  names='activity', title='Activities distribution')
+meditation_percentage = events[
+    (events['activity'] == 'Meditation') &
+    (events['date'] > dt.date.today() - dt.timedelta(days=7)) &
+    (events['date'] < dt.date.today())
+].duration.sum() / float(config('MEDITATION_GOAL')) * 100
 
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.COSMO])
 
+# ====================================================================
+# APP LAYOUT
+# ====================================================================
+
 app.layout = html.Div(className="container mt-4 mb-5", children=[
+    html.Link(
+        rel='stylesheet',
+        href='/static/circle.css'
+    ),
+
     html.H1(
         id='title',
         children="Arnaud's Time Tracker"
@@ -183,53 +205,141 @@ app.layout = html.Div(className="container mt-4 mb-5", children=[
 
     html.Div(
         id='headline',
+        className="mb-3",
         children='''
             Headline/subtitle, TBD what I want exactly.
         '''
     ),
 
-    dcc.Dropdown(
-        id='bar-stacked-date-range',
-        className='col-3',
-        clearable=False,
-        options=[
-            dict(label='Last week', value=7),
-            dict(label='Last month', value=30),
-            dict(label='Last quarter', value=90),
-            dict(label='Last semester', value=180),
-            dict(label='Last year', value=360)
-        ],
-        value=30
+    html.Div(
+        className="row",
+        children=[
+            html.Div(
+                className="col-12",
+                children=[
+                    html.Div(
+                        className="d-flex justify-content-end",
+                        children=[
+                            dcc.Dropdown(
+                                id='bar-stacked-date-range',
+                                style=dict(width='150px'),
+                                clearable=False,
+                                options=[
+                                    dict(label='Last week', value=7),
+                                    dict(label='Last month', value=30),
+                                    dict(label='Last quarter', value=90),
+                                    dict(label='Last semester', value=180),
+                                    dict(label='Last year', value=360)
+                                ],
+                                value=30
+                            )
+                        ]
+                    ),
+
+                    dcc.Graph(
+                        id='bar-stacked',
+                        figure=bar_stacked_fig
+                    )
+                ]
+            )
+        ]
     ),
 
-    dcc.Graph(
-        id='bar-stacked',
-        figure=bar_stacked_fig
-    ),
+    html.Div(
+        className="row",
+        children=[
+            html.Div(
+                className='col-6',
+                children=[
 
-    dcc.Graph(
-        id='pie'
-    ),
+                    dcc.Graph(
+                        id='pie'
+                    ),
 
-    dcc.RangeSlider(
-        id='pie-range-slider',
-        className="col-6 mx-auto",
-        min=0,
-        max=4,
-        step=None,
-        marks={
-            0: '6 m',
-            1: '3 m',
-            2: '1 m',
-            3: '1 w',
-            4: 'Today'
-        },
-        value=[3, 4],
+                    dcc.RangeSlider(
+                        id='pie-range-slider',
+                        className="col-6 mx-auto",
+                        min=0,
+                        max=4,
+                        step=None,
+                        marks={
+                            0: '6 M',
+                            1: '3 M',
+                            2: '1 M',
+                            3: '1 W',
+                            4: 'Today'
+                        },
+                        value=[3, 4]
+                    )
+                ]
+            ),
 
+            html.Div(
+                className="col-6 d-flex flex-column justify-content-center \
+                           align-self-center align-items-center",
+                children=[
+                    html.Div(
+                        className=f"c100 p{int(exercise_percentage)}",
+                        children=[
+                            html.Span(
+                                id='exercise-percentage',
+                                children=[
+                                    f"{np.round(exercise_percentage, 1)}%"
+                                ]
+                            ),
+                            html.Div(
+                                className="slice",
+                                children=[
+                                    html.Div(
+                                        className="bar"
+                                    ),
+                                    html.Div(
+                                        className="fill"
+                                    )
+                                ]
+                            )
+                        ]
+                    ),
+                    html.H4(
+                        "achieved of weekly exercise goal.",
+                        className="mb-3"
+                    ),
+
+                    html.Div(
+                        className=f"c100 p{int(meditation_percentage)}",
+                        children=[
+                            html.Span(
+                                id='meditation-percentage',
+                                children=[
+                                    f"{np.round(meditation_percentage, 1)}%"
+                                ]
+                            ),
+                            html.Div(
+                                className="slice",
+                                children=[
+                                    html.Div(
+                                        className="bar"
+                                    ),
+                                    html.Div(
+                                        className="fill"
+                                    )
+                                ]
+                            )
+                        ]
+                    ),
+                    html.H4(
+                        "achieved of weekly meditation goal."
+                    )
+                ]
+            )
+        ]
     ),
 ])
 
+
+# ====================================================================
 # CALLBACKS
+# ====================================================================
 
 
 @app.callback(
@@ -241,7 +351,13 @@ def update_date_range(date_range):
     today = dt.date.today()
     start = today - dt.timedelta(days=date_range)
 
-    bar_stacked_fig.update_layout(xaxis=dict(range=(start, today)))
+    bar_stacked_fig.update_layout(
+        xaxis=dict(range=(start, today + dt.timedelta(days=1))),
+        legend=dict(
+            x=0, y=1.0,
+            bgcolor='rgba(255, 255, 255, 0)',
+            bordercolor='rgba(255, 255, 255, 0)'),
+    )
 
     return bar_stacked_fig
 
@@ -250,7 +366,7 @@ def update_date_range(date_range):
     Output('pie', 'figure'),
     [Input('pie-range-slider', 'value')],
 )
-def update_date_range(date_range):
+def update_range_slider(date_range):
 
     # Map days in past with range slider
     map = [180, 90, 30, 7, 0]
@@ -260,10 +376,19 @@ def update_date_range(date_range):
     end = today - dt.timedelta(days=map[date_range[1]])
 
     ranged = events[(events['date'] > start) & (events['date'] < end)]
-    
-    fig = px.pie(ranged, values='duration', names='activity', title='Activities distribution')
+
+    fig = px.pie(
+        data=ranged, values='duration', names='activity',
+        title='Activities distribution'
+    )
 
     return fig
+
+
+@app.server.route('/static/<path:path>')
+def static_file(path):
+    static_folder = os.path.join(os.getcwd(), 'static')
+    return send_from_directory(static_folder, path)
 
 
 if __name__ == '__main__':
