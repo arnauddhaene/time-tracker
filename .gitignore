@@ -2,5 +2,5 @@
 *-credentials.json
 *-token.pickle
 .env
-__pyacache__/*
+__pycache__/*
 .vscode/*
