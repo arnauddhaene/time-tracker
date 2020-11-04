@@ -4,6 +4,7 @@ import pickle
 import json
 
 import dash
+from dash.exceptions import PreventUpdate
 import dash_bootstrap_components as dbc
 import dash_core_components as dcc
 import dash_html_components as html
@@ -15,7 +16,7 @@ import plotly.express as px
 
 from dateutil.parser import isoparse
 from decouple import config
-from flask import send_from_directory
+from flask import send_from_directory, request
 
 from google.auth.transport.requests import Request
 from google_auth_oauthlib.flow import InstalledAppFlow
@@ -170,20 +171,25 @@ def pre_process(raw):
     return processed
 
 
-# Fetch Visium Events
-visium_events = pd.DataFrame(data=get_events(
-    get_service(), calendar_id=config('VISIUM_CAL_ID')).get('items', []))
+def fetch_events():
+    """Fetch Events from both Calendars
+    """
+    # Fetch Visium Events
+    visium_events = pd.DataFrame(data=get_events(
+        get_service(), calendar_id=config('VISIUM_CAL_ID')).get('items', []))
 
-v_events = pre_process(visium_events)
-v_events['activity'] = ['Visium'] * v_events.shape[0]
+    v_events = pre_process(visium_events)
+    v_events['activity'] = ['Visium'] * v_events.shape[0]
 
-# Fetch Personal Events - from primary Google Calendar
-personal_events = pd.DataFrame(data=get_events(
-    get_service(), calendar_id='primary').get('items', []))
+    # Fetch Personal Events - from primary Google Calendar
+    personal_events = pd.DataFrame(data=get_events(
+        get_service(), calendar_id='primary').get('items', []))
 
-p_events = pre_process(personal_events)
+    p_events = pre_process(personal_events)
 
-events = pd.concat([v_events, p_events])
+    return pd.concat([v_events, p_events])
+
+events = fetch_events()
 
 # Stacked Bar Chart of duration summed by day
 bar_stacked_fig = px.bar(events, x='date', y='duration', color='activity')
@@ -202,7 +208,7 @@ meditation_percentage = events[
     (events['date'] < dt.date.today())
 ].duration.sum() / float(config('MEDITATION_GOAL')) * 100
 
-app = dash.Dash(__name__, external_stylesheets=[dbc.themes.COSMO])
+app = dash.Dash(__name__, external_stylesheets=[dbc.themes.SANDSTONE])
 server = app.server
 
 # ====================================================================
@@ -215,17 +221,41 @@ app.layout = html.Div(className="container mt-4 mb-5", children=[
         href='/static/circle.css'
     ),
 
-    html.H1(
-        id='title',
-        children="Arnaud's Time Tracker"
-    ),
-
     html.Div(
-        id='headline',
-        className="mb-3",
-        children='''
-            Headline/subtitle, TBD what I want exactly.
-        '''
+        className="row",
+        children=[
+            html.Div(
+                className="col-12 mb-3",
+                children=[
+                    html.Div(
+                        className="d-flex justify-content-between",
+                        children=[
+                            html.Div(
+                                children=[
+                                    html.H1(
+                                        id='title',
+                                        children="Arnaud's Time Tracker"
+                                    ),
+
+                                    html.Div(
+                                        id='headline',
+                                        children='''
+                                            Headline/subtitle, TBD what I want exactly.
+                                        '''
+                                    ),
+                                ]
+                            ),
+
+                            html.Button(
+                                id='quit',
+                                className='btn btn-danger',
+                                children=['Quit']
+                            )
+                        ]
+                    )
+                ]
+            )
+        ]
     ),
 
     html.Div(
@@ -235,8 +265,16 @@ app.layout = html.Div(className="container mt-4 mb-5", children=[
                 className="col-12",
                 children=[
                     html.Div(
-                        className="d-flex justify-content-end",
+                        className="d-flex justify-content-between",
                         children=[
+                            html.Button(
+                                id='refresh',
+                                className="btn btn-primary",
+                                children=[
+                                    "Refresh"
+                                ]
+                            ),
+
                             dcc.Dropdown(
                                 id='bar-stacked-date-range',
                                 style=dict(width='150px'),
@@ -402,11 +440,46 @@ def update_range_slider(date_range):
     return fig
 
 
+@app.callback(
+    Output('refresh', 'children'),
+    [Input('refresh', 'n_clicks')]
+)
+def refresh(n):
+
+    if n is None:
+        raise PreventUpdate
+    
+    events = fetch_events()
+
+    return [f'Refresh ({dt.datetime.now()})']
+
+@app.callback(
+    Output('quit', 'children'),
+    [Input('quit', 'n_clicks')]
+)
+def shutdown(n):
+
+    if n is None:
+        raise PreventUpdate
+
+    flask_shutdown = request.environ.get('werkzeug.server.shutdown')
+
+    if flask_shutdown is None:
+        raise RuntimeError('Not running with werkzeug')
+
+    flask_shutdown()
+
+    return ['Close tab']
+
+
 @app.server.route('/static/<path:path>')
 def static_file(path):
     static_folder = os.path.join(os.getcwd(), 'static')
     return send_from_directory(static_folder, path)
 
+# ====================================================================
+# RUN APP
+# ====================================================================
 
 if __name__ == '__main__':
     app.run_server(debug=True)
